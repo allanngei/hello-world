@@ -1,0 +1,305 @@
+#!/bin/bash
+
+trap "echo -e \"\nSignal received!\nTerminating...\"; rm -f temp$$ 2temp$$ 3temp$$; exit 1" SIGINT
+
+dims(){
+	if [ "$#" -gt 1 ] #argument count greater than 1? If so, error and non-zero exit code
+	then
+		echo -e "dims will accept a maximum of a single argument!" >&2
+		exit 1
+
+	#testing whether the provided argument is a readable file. If not then non-zero exit code		
+	elif [ "$#" -eq 1  -a  ! -r "$1" ] 
+	then
+		echo -e "Input file is not readable." >&2
+		exit 2
+	
+	#at this point the specifed file must be a regular file so we proceed to calculate its dimensions
+	elif [ "$#" -eq 1  -a  -r "$1" ]  
+	then
+		read line < $1
+		rows=0
+		cols=0
+		for i in $line		#counting the number of columns in the matrix by counting the fields on a single line
+			do
+			((cols++))
+			done
+
+		while read line		#counting the number of rows in the matrix by counting the number of times read executes before reaching EOF
+			do
+			((rows++))
+			done < $1
+
+		#rows and cols now contain the dimensions of the matrix in $1
+		echo -e "$rows $cols\n"	#output result
+		exit 0
+
+	#no argument so dims has to read from stdin
+	else
+        	tmp="temp$$"		#temporary file in which to store data from stdin
+        	while read line
+                	do
+                        	echo "$line" >> $tmp	#copying stdin to temporary file
+                	done
+        	matrix dims $tmp	#recursive call to dims with the temporary file we've built for an argument
+        	rm -f $tmp		#cleanup
+        	exit 0
+
+	fi
+}
+
+transpose(){
+	if [ "$#" -gt 1 ] #argument count greater than 1? If so, error and non-zero exit code
+        then
+                echo -e "transpose will accept a maximum of a single argument!" >&2
+                exit 1
+
+        #testing whether the provided argument is a readable file. If not, then non-zero exit code            
+        elif [ "$#" -eq 1  -a  ! -r "$1" ]
+        then
+                echo -e "Input file is not readable." >&2
+                exit 2
+
+        #at this point the specifed file must be a regular file so we proceed to transpose it
+        elif [ "$#" -eq 1  -a  -r "$1" ]
+        then
+		        fields=0
+		        rows=0
+		        while read line  #count the number of rows in target matrix
+		        	do
+		        		((rows++))
+		        	done <$1
+		        	
+		        	#echo -en "Number of Rows is $rows\n"
+		        #counting the number of columns in order to determine the number of fields
+		        read line <$1
+		        for i in $line
+			        do
+			        ((fields++))
+			        done
+
+				#echo -en "Number of Columns is $fields\n"
+		        tmp="temp$$"
+		        field=0
+		        while [ $field -lt $fields ]
+			            do
+			            ((field++))		#field incremented before being used to cut so that we advance to the next column to be transformed
+			            cut -f$field $1 | head -n $(expr $rows - 1) | tr '\n' '\t' >> $tmp	#here we simply append each new line created by transforming subsequent columns. New lines are transformed to tabs except for the final element
+			            cut -f$field $1 | tail -n 1 >> $tmp		#final element treated separately to preserve new line at end of row
+			            done
+		        
+		        cat $tmp		#display the transposed matrix
+		        rm -f $tmp #clean up the temp file we created
+		        exit 0
+
+	#input is therefore coming from stdin	
+	    else
+		        tmp="temp$$"
+		        while read line  #loop that copies stdin input to a temporary file so we can ran recursively run transpose utilizing code we've already written
+			            do
+			            echo -e "$line" >> $tmp
+			            done
+
+		        matrix transpose $tmp	#recursive call to transpose with our temporary file for an argument
+		        rm -f $tmp #clean up the temp file we created
+		        exit 0
+	    fi
+}
+
+mean(){
+        if [ "$#" -gt 1 ] #argument count greater than 1? If so, error and non-zero exit code
+        then
+                echo -e "mean will accept a maximum of a single argument!" >&2
+                exit 1
+ 
+        #testing whether the provided argument is a readable file. If not, then non-zero exit code           
+        elif [ "$#" -eq 1  -a  ! -r "$1" ]
+        then
+                echo -e "Input file is not readable." >&2
+                exit 2
+ 	#at this point the specified file must be a regular file so we proceed to calculate its mean
+        elif [ "$#" -eq 1  -a  -r "$1" ]
+	then
+		fields=0
+                tmp="temp$$"
+                cp $1 $tmp	#we create a temporary file that's a copy of the user provided one
+		        read line < $1
+		        #counting the number of columns in order to determine the number of fields
+		        for i in $line
+			        do
+			        ((fields++))
+			        done
+                tmp2="2temp$$"
+                tmp3="3temp$$"
+                field=0
+                while  [ $field -lt $fields ]	#iterate through each column in target matrix
+                    do
+                    ((field++))
+                    cut -f$field $tmp > $tmp2 #here we extract each column of the target matrix sequentially and write them to a second temporary file
+                    sum=0
+                    count=0
+                    while read line	#extracting each element of the current column sequentially
+                        do
+                            sum=$(expr $sum + $line) #rolling sum used to compute the mean
+                            ((count++))		#counting the number of elements for the mean calculation
+                        done < $tmp2
+
+                        mean=$(( ($sum + ($count / 2) * (($sum>0) * 2 - 1)) / $count )) #formula that calculates the mean with common rounding
+                        
+                        if [ $field -eq $fields ]
+                        then
+                        	echo -en "$mean\n" >> $tmp3	#append current column's mean to a third temporary file with a new line character
+			else
+				echo -en "$mean\t" >> $tmp3	#append current column's mean to a third temporary file with a tab character
+			fi
+                    done
+                    
+                echo "" >> $tmp3	#adding a new line character to the end of the line
+                
+                cat $tmp3	#display result
+                rm -f $tmp $tmp2 $tmp3 #clean up the temp files we created
+		        exit 0
+	
+	#input for matrix mean is coming from stdin
+	else
+                tmp="temp$$"
+                while read line
+                    do
+                    echo "$line" >> $tmp	#copying data from stdin to a temporary file
+                    done
+
+                matrix mean $tmp	#recursive call to matrix mean that works on the temporary file we just created. Utilizes code we have already written.
+                rm -f $tmp #clean up the temp file we created
+                exit 0
+        fi
+ }
+
+add(){
+        if [ "$#" -ne 2 ] #argument count is not 2, so error and non-zero exit code
+        then
+                echo -e "add will accept exactly two arguments!" >&2
+                exit 1
+
+        #testing whether the provided arguments are readable files. If one or both are not then error and non-zero exit code
+        elif test ! -r "$1" -o ! -r "$2"
+        then
+                echo -e "One of the input files is not readable." >&2
+                exit 2
+
+        else
+                #arguments are readable files so we proceed to check whether the two matrices' dimensions allow for matrix addition
+                dims1=$(bash matrix dims $1)   #here we use the dims function to determine the dimensions of argument 1
+                dims2=$(bash matrix dims $2)   #here we use the dims function to determine the dimensions of argument 2
+
+		#here we test for equality of dimension between the two martices. If not equal, then error and non-zero exit code
+                if [ "$dims1" != "$dims2" ]
+                then
+                        echo -e "The input marices have differing dimensions.  Matrix addition is not possible." >&2
+                        exit 3
+		
+		#here we know our two matrices are compatible for matrix addition
+                else
+                        tmp="temp$$"  #temporary file
+                        echo "$dims1" > $tmp
+                        rows=$(cut -f1 -d' ' $tmp)      # number of rows is extracted from the first field in the dims output
+                        cols=$(cut -f2 -d' ' $tmp)      # number of cols is extracted from the second field in the dims output
+                        y=0
+                        tmp2="2temp$$"
+                        while [ $y -lt $rows ]	#we iterate through each row
+                                do
+                                x=0
+                                ((y++))
+                                while [ $x -lt $cols ] #we iterate through each element in the current row
+                                        do
+                                        ((x++))
+                                        current=$(cut -f$x $1 | head -n $y | tail -n 1)     #this cut extracts a single element in the first matrix
+                                        current=$(expr $current + $(cut -f$x $2 | head -n $y | tail -n 1))      #this cut extracts the corresponding element in the second matrix and adds it to the value extracted from the first matrix
+                                        if [ $x -eq $cols ]
+                                        then
+                                                echo -en "$current\n" >> $tmp2      #the sum of the two elements is written to the corresponding location in the result matrix with a new line character if at the end of the row
+                                        else
+                                                echo -en "$current\t" >> $tmp2	 #the sum of the two elements is written to the corresponding location in the result matrix with a tab character if not at the end of the row
+                                        fi
+                                        done
+                                done
+                        cat $tmp2
+                        rm -f $tmp $tmp2
+                        exit 0
+
+                fi
+        fi
+}
+
+multiply(){
+        if [ "$#" -ne 2 ] #argument count is not 2, so error and non-zero exit code
+        then
+                echo -e "multiply will accept exactly two arguments!" >&2
+                exit 1
+
+        elif test ! -r "$1" -o ! -r "$2"	#testing whether the input matrix files are regular readable files, if not error and non-zero exit code
+        then
+                echo -e "One of the input files is not readable." >&2
+                exit 2
+
+        else
+                #arguments are readable files so we proceed
+                dims1=$(bash matrix dims $1)   #here we use the dims function to determine the dimensions of argument 1
+                dims2=$(bash matrix dims $2)   #here we use the dims function to determine the dimensions of argument 2
+
+                tmp="temp$$"  #temporary file 1
+                tmp2="2temp$$" #temporary file 2
+                echo "$dims1" > $tmp
+                echo "$dims2" > $tmp2
+                rowsF2=$(cut -f1 -d' ' $tmp2)     # number of rows is extracted from the first field in the dims output of file 2
+                colsF2=$(cut -f2 -d' ' $tmp2)       # number of cols is extracted from the second field in the dims output of file 2
+                colsF1=$(cut -f2 -d' ' $tmp)      # number of cols is extracted from the second field in the dims output of file 1
+                rowsF1=$(cut -f1 -d' ' $tmp)       # number of rows is extracted from the first field in the dims output of file 1
+
+                if [ $rowsF2 -ne $colsF1 ]	#if true then input matrices have incompatible dimensions for matrix multiplication, so error and non-zero exit code 
+                then
+                        echo -e "The number of columns in input matrix 1 does not equal the number of rows in input matrix 2.  Matrix multiplication is not possible." >&2
+                        exit 3
+
+                else
+                        echo "" > $tmp	#clearing temp file 1
+                        echo "" > $tmp2 #clearing temp file 2
+                        tmp3="3temp$$"
+#y=0
+#                 while [ $y -lt $rowsF1 ]
+                        while read line #As long as a new row is read in from input matrix 1....
+                                do
+#((y++))
+                                echo "$line" > $tmp			#creates a row file with a single row from input matrix 1
+                                x=0
+                                while [ $x -lt $colsF2 ]    # loops through each column of intput matrix 2
+                                        do
+                                        ((x++))
+                                        cut -f$x $2 > $tmp2     #creates a column file with a single column from input matrix 2
+                                        place=0
+                                        element=0
+
+                                        while read line         #extracts a row from the column file created above i.e. an element from input matrix 2
+                                                do
+                                                ((place++))
+                                                holder=$(expr $line \* $(cut -f$place $tmp))		#extracts a column from the row file created above i.e. an element from input matrix 1 then multiplies that value with the element extracted from input matrix 2 above and stores it in a temp variable
+                                                element=$(expr $element + $holder)		#temp variable from above is added to the accumulator variable 'element'
+                                                done < $tmp2
+
+                                        if [ $x -lt $colsF2 ]	#check to see whether we are at the end of the row
+                                        then
+                                                echo -ne "$element\t" >> $tmp3		#there is/will be a column after the one being currently constructed so we tab after inserting new element
+                                        else
+                                                echo -ne "$element\n" >> $tmp3		#there isn't/will not be a column after the one being currently constructed so we insert a new line character after inserting new element
+                                        fi
+
+                                        done
+                                done < $1
+                        cat $tmp3	#display result
+                        rm -f $tmp $tmp2 $tmp3	#clean up temp files
+                        exit 0
+                fi
+        fi
+}
+
+$1 "${@:2}"
+
